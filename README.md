@@ -196,15 +196,15 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude Code to read the brief and RUNNING.md and help me finish the unit 7 build quickly.
+- *What came back:* Working `/submit` and `/appeal` routes, the style signal, a combining rule with a disagreement shrink, three labels, and draft acceptance criteria.
+- *What I changed:* I reviewed the criteria targets and kept the commit order (criteria first) so the history shows they predate the results.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude Code to run four calibration texts and the bad-input cases through the app.
+- *What came back:* A plain human paragraph was labeled AI at 0.7519, which is the false positive this project is about.
+- *What I changed:* The AI threshold went from 0.65 to 0.75 so doubtful cases land in "unsure", and I recorded the case as a known weak spot instead of hiding it.
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
