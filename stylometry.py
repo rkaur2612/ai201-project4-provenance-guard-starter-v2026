@@ -64,8 +64,14 @@ def sentence_length_spread(text: str) -> float:
     `stdev` raises on fewer than two values. Decide what that should return
     before the attack set decides for you.
     """
-    # TODO: replace this
-    return 0.0
+    lengths = [len(words(x)) for x in sentences(text)]
+    if len(lengths) < 2:
+        return 0.0  # one sentence: no spread to measure, reads as uniform
+    mean = statistics.mean(lengths)
+    if mean == 0:
+        return 0.0
+    # Coefficient of variation. ~0.2 uniform (AI-ish), ~0.6+ lumpy (human-ish).
+    return statistics.stdev(lengths) / mean
 
 
 def type_token_ratio(text: str) -> float:
@@ -80,8 +86,10 @@ def type_token_ratio(text: str) -> float:
     directly comparable on it, and if your test inputs vary a lot in length,
     that alone can look like a signal.
     """
-    # TODO: replace this
-    return 0.0
+    w = words(text)[:100]  # first 100 words, so long and short texts compare
+    if not w:
+        return 0.0
+    return len(set(w)) / len(w)
 
 
 def punctuation_density(text: str) -> float:
@@ -94,8 +102,13 @@ def punctuation_density(text: str) -> float:
         more interesting than full stops, because they vary more between
         writers.
     """
-    # TODO: replace this
-    return 0.0
+    n = len(words(text))
+    if n == 0:
+        return 0.0
+    # Commas, semicolons, colons, dashes, parentheses, quotes: the marks that
+    # vary between writers. Full stops are excluded. Counted per word.
+    marks = re.findall(r"[,;:()\"—–-]", text)
+    return len(marks) / n
 
 
 # ── Combining them ───────────────────────────────────────────────────────────
@@ -122,8 +135,14 @@ def style_signal(text: str) -> float:
     you trust it. Plain and ordinary, not formal: formal prose reads as *human*
     to signal one, and it is plain writing that gets accused.
     """
-    # TODO: replace this
-    return 0.5
+    # Each measure becomes a 0-1 "AI-ness" and the three are averaged equally.
+    # Spread: CV 0.2 -> 1.0 (uniform), CV 0.7 -> 0.0 (lumpy).
+    spread = 1.0 - min(max((sentence_length_spread(text) - 0.2) / 0.5, 0.0), 1.0)
+    # Vocabulary: TTR 0.55 -> 1.0 (repetitive), 0.85 -> 0.0 (varied).
+    ttr = 1.0 - min(max((type_token_ratio(text) - 0.55) / 0.30, 0.0), 1.0)
+    # Punctuation: 0.02 per word -> 1.0 (sparse), 0.15 -> 0.0 (varied).
+    punct = 1.0 - min(max((punctuation_density(text) - 0.02) / 0.13, 0.0), 1.0)
+    return round((spread + ttr + punct) / 3, 4)
 
 
 if __name__ == "__main__":
