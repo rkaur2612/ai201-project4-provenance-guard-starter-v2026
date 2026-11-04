@@ -199,17 +199,59 @@ def submit():
     what should this do when `text` is missing, empty, or enormous? A crash on
     a malformed input is one of the most common real failures there is.
     """
-    payload = request.get_json(silent=True) or {}
+    import detector
+    import scoring
+    import stylometry
 
-    # TODO: delete this and build the route.
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _reject("bad_request", "Send a JSON object with text and creator_id.", 400)
+    text = payload.get("text")
+    creator_id = payload.get("creator_id")
+    if not isinstance(creator_id, str) or not creator_id.strip():
+        return _reject("bad_creator_id", "creator_id must be a non-empty string.", 400)
+    if not isinstance(text, str) or not text.strip():
+        return _reject("bad_text", "text must be a non-empty string.", 400, creator_id)
+    if len(text) > config.MAX_TEXT_CHARS:
+        return _reject(
+            "text_too_long",
+            f"text is over {config.MAX_TEXT_CHARS} characters.", 413, creator_id,
+        )
+
+    try:
+        model_score = detector.model_signal(text)
+    except ValueError as exc:  # too short to score
+        return _reject("text_too_short", str(exc), 422, creator_id)
+    except detector.DetectorUnavailable as exc:
+        return _reject("detector_unavailable", str(exc), 503, creator_id)
+    style_score = stylometry.style_signal(text)
+    combined = scoring.combine_signals(model_score, style_score)
+    guess, label = scoring.score_to_label(combined)
+
+    content_id = uuid.uuid4().hex[:12]
+    audit.log_decision(
+        content_id=content_id, creator_id=creator_id.strip(), guess=guess,
+        model_score=model_score, style_score=style_score,
+        combined_score=combined, label=label, status="decided",
+    )
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /submit isn't built yet — see the TODO in app.py.",
-        "you_sent": {
-            "text_length": len(payload.get("text", "")),
-            "creator_id": payload.get("creator_id"),
-        },
-    }), 501
+        "content_id": content_id,
+        "guess": guess,
+        "confidence": combined,
+        "label": label,
+        "model_score": model_score,
+        "style_score": style_score,
+        "status": "decided",
+    })
+
+
+def _reject(error, message, code, creator_id=None):
+    """Refuse bad input with JSON, and leave a trace in the audit log."""
+    audit.log_rejection(
+        creator_id=creator_id if isinstance(creator_id, str) else "unknown",
+        reason=error,
+    )
+    return jsonify({"error": error, "message": message}), code
 
 
 @app.post("/appeal")
@@ -232,14 +274,26 @@ def appeal():
     to the person on the other end. It's the only thing standing between a
     wrong accusation and nothing at all.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _reject("bad_request", "Send a JSON object with content_id and reasoning.", 400)
+    content_id = payload.get("content_id")
+    reasoning = payload.get("reasoning")
+    if not isinstance(content_id, str) or not content_id.strip():
+        return _reject("bad_content_id", "content_id must be a non-empty string.", 400)
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        return _reject("bad_reasoning", "reasoning must be a non-empty string.", 400)
 
-    # TODO: delete this and build the route.
+    original = [e for e in audit.entries_for(content_id) if e.get("event") != "appeal"]
+    if not original:
+        return _reject("unknown_content_id", "No submission found with that content_id.", 404)
+
+    audit.log_appeal(content_id, original[0]["creator_id"], reasoning.strip())
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /appeal isn't built yet — see the TODO in app.py.",
-        "you_sent": payload,
-    }), 501
+        "content_id": content_id,
+        "status": "under_review",
+        "message": "Thank you. Your appeal has been recorded and a person will review it.",
+    })
 
 
 # ── Already works ─────────────────────────────────────────────────────────────
