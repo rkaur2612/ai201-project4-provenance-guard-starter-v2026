@@ -39,6 +39,23 @@
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
 
+Provenance Guard is a small local web service. A writing site sends it text and gets back a guess (AI, human or unsure), a confidence score from 0 to 1, a plain-English label and a way for the writer to appeal. Nothing calls a hosted service; the model runs on the laptop.
+
+1. **Arrival.** `POST /submit` receives `{text, creator_id}` in `app.py::submit`.
+2. **Validation.** Missing, empty, non-string, too-short or over-20,000-character text gets a JSON 4xx error and a `rejected` audit entry, never a crash.
+3. **Signal one.** `detector.model_signal` scores how predictable the text is to GPT-2 (0 to 1, higher = more AI-like).
+4. **Signal two.** `stylometry.style_signal` scores the shape of the text: sentence-length spread, vocabulary variety and punctuation (0 to 1, higher = more AI-like).
+5. **Combining.** `scoring.combine_signals` merges the two into one confidence score.
+6. **Label.** `scoring.score_to_label` maps the score to one of three labels.
+7. **Logging and reply.** `audit.log_decision` writes both signal scores, the combined score, the label and status `decided` to `logs/audit.jsonl`, and the response carries the same plus a `content_id`. `POST /appeal` takes that `content_id`, moves the item to `under_review` and logs the writer's reasoning next to the original decision.
+
+**Endpoint contract.**
+
+| Endpoint | In | Out |
+|---|---|---|
+| `POST /submit` | `{"text": str, "creator_id": str}` | `{content_id, guess ("ai"/"human"/"unsure"), confidence (0-1), label, model_score, style_score, status}` |
+| `POST /appeal` | `{"content_id": str, "reasoning": str}` | `{content_id, status: "under_review", message}`; 404 for an unknown `content_id` |
+
 
 
 ---
@@ -53,28 +70,28 @@
 
 ### Signal one — the model signal
 
-**What it measures:**
+**What it measures:** How predictable the text is to GPT-2 (perplexity), squashed onto 0-1 in `detector.py::model_signal`.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** A language model writes the most likely next word, so its output is easy for another model to predict. People reach for unexpected words more often.
 
-**What it can't see:**
+**What it can't see:** Authorship. It rewards common words in short, ordinary sentences, so plain human writing (a second-language writer, a younger writer, anyone writing simply) scores as machine-like. That is a structural false positive, not a bug.
 
 ### Signal two — the style signal
 
-**What it measures:**
+**What it measures:** The shape of the text, in `stylometry.py::style_signal`: sentence-length spread (stdev/mean), type-token ratio on the first 100 words, and punctuation density (commas, semicolons, colons, dashes, brackets, quotes per word). Each is scaled to 0-1 and the three are averaged equally.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** Generated prose tends toward even, mid-length sentences, narrower vocabulary and tidy punctuation. Human writing is lumpier.
 
-**What it can't see:**
+**What it can't see:** Meaning. It cannot read, so anything that changes shape without changing substance moves it: typos, broken-up sentences, a pasted quotation. That is cheap to do on purpose.
 
 ### The combining rule
 
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:**
+**The rule:** A weighted average of the two scores, plus a disagreement rule: if the signals are far apart, the average is pulled halfway back toward 0.5. Two methods disagreeing is itself uncertainty, so neither signal alone can produce an accusation.
 
-**The numbers:**
+**The numbers:** `WEIGHT_MODEL_SIGNAL = 0.5`, `WEIGHT_STYLE_SIGNAL = 0.5`, `DISAGREE_GAP = 0.4`, `DISAGREE_SHRINK = 0.5`, `HUMAN_THRESHOLD = 0.35`, `AI_THRESHOLD = 0.75`, all in `config.py`. I set the AI threshold higher than the human one's mirror image (0.75, not 0.65) on purpose: a false accusation costs more than a missed AI text.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -82,6 +99,10 @@
      somewhere else, say where. -->
 
 **A case where my two signals split, and what my rule does with it:**
+
+A casual, punchy human paragraph ("Honestly? I hated my first job...") scored `model_score` 0.7041 (short common words read as predictable) but `style_score` 0.038 (very lumpy sentences, lots of punctuation). The plain average is 0.371; the gap of 0.666 exceeds 0.4, so the rule pulls it to 0.4355, which is "unsure" instead of leaning either way.
+
+**Known weak spot (found while testing):** A plain, simple human paragraph ("I like my town. It is small and quiet...") scored model 0.8588 and style 0.645, combined 0.7519, and was labeled AI. Both signals agree there, so the disagreement rule cannot help. This is the false positive described above and is what unit 8 should probe.
 
 
 
@@ -96,14 +117,13 @@
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00 – 0.35 | We think this was probably written by a person. |
+| unsure | 0.35 – 0.75 | We can't tell for sure how this was written. Our checks gave mixed results, and that is not a judgment about you. If you wrote it yourself, you can appeal and a person will take a look. |
+| high-confidence AI | 0.75 – 1.00 | We think this may have been written with the help of an AI tool. We can be wrong, so if you wrote it yourself, please appeal and a person will review it. |
 
 **Why I worded the "unsure" one this way:**
-<!-- It's the hardest of the three. It has to admit uncertainty without
-     sounding like an accusation, because the person reading it may well have
-     written every word themselves. -->
+
+The person reading it may well have written every word themselves, so it says plainly that the result is not a judgment about them and points to the appeal. The AI label says "may have been" and invites an appeal for the same reason.
 
 
 
@@ -124,11 +144,19 @@
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "Honestly? I hated my first job. The coffee was awful, my boss kept calling me '"'"'kiddo'"'"', and the bus -- don'"'"'t get me started on the bus -- never came on time. But I learned to laugh at it. Mostly.", "creator_id": "tester"}'
 ```
 
 ```json
-
+{
+  "content_id": "8d5443bba007",
+  "guess": "unsure",
+  "confidence": 0.4355,
+  "label": "We can't tell for sure how this was written. Our checks gave mixed results, and that is not a judgment about you. If you wrote it yourself, you can appeal and a person will take a look.",
+  "model_score": 0.7041,
+  "style_score": 0.038,
+  "status": "decided"
+}
 ```
 
 **An appeal**
@@ -136,12 +164,18 @@ $ curl -X POST http://127.0.0.1:5000/submit \
 ```bash
 $ curl -X POST http://127.0.0.1:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
+  -d '{"content_id": "8d5443bba007", "reasoning": "I wrote it."}'
 ```
 
 ```json
-
+{
+  "content_id": "8d5443bba007",
+  "message": "Thank you. Your appeal has been recorded and a person will review it.",
+  "status": "under_review"
+}
 ```
+
+An appeal on an unknown id returns `404 {"error": "unknown_content_id", ...}` and logs a rejection.
 
 **What the log shows afterwards**
 
@@ -150,8 +184,11 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 ```
 
 ```json
-
+{"timestamp": "2026-11-04T21:33:12+00:00", "content_id": "8d5443bba007", "creator_id": "tester", "guess": "unsure", "model_score": 0.7041, "style_score": 0.038, "combined_score": 0.4355, "label": "We can't tell for sure how this was written. ...", "status": "decided"}
+{"timestamp": "2026-11-04T21:33:12+00:00", "content_id": "8d5443bba007", "creator_id": "tester", "event": "appeal", "status": "under_review", "reasoning": "I wrote it."}
 ```
+
+(Entries copied from `logs/audit.jsonl`; the label is shortened here.)
 
 ---
 
