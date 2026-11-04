@@ -18,6 +18,18 @@ you claim, so that line should read `scoring.py::combine_signals`.
 
 import config
 
+LABEL_HUMAN = "We think this was probably written by a person."
+LABEL_UNSURE = (
+    "We can't tell for sure how this was written. Our checks gave mixed "
+    "results, and that is not a judgment about you. If you wrote it yourself, "
+    "you can appeal and a person will take a look."
+)
+LABEL_AI = (
+    "We think this may have been written with the help of an AI tool. We can "
+    "be wrong, so if you wrote it yourself, please appeal and a person will "
+    "review it."
+)
+
 
 def combine_signals(model_score: float, style_score: float) -> float:
     """
@@ -52,11 +64,15 @@ def combine_signals(model_score: float, style_score: float) -> float:
     The weights in config.py are placeholders. Change them, or ignore them and
     write a different rule.
     """
-    # TODO: replace this
-    return (
+    avg = (
         config.WEIGHT_MODEL_SIGNAL * model_score
         + config.WEIGHT_STYLE_SIGNAL * style_score
     )
+    # Disagreement rule: if the signals are far apart, neither alone may
+    # produce an accusation. Pull the score toward 0.5 (unsure).
+    if abs(model_score - style_score) > config.DISAGREE_GAP:
+        avg = 0.5 + (avg - 0.5) * config.DISAGREE_SHRINK
+    return round(min(max(avg, 0.0), 1.0), 4)
 
 
 def score_to_label(score: float) -> tuple[str, str]:
@@ -85,12 +101,11 @@ def score_to_label(score: float) -> tuple[str, str]:
     think if they got it on their own work. That question is the whole
     milestone.
     """
-    # TODO: replace this — thresholds are in config.py
     if score >= config.AI_THRESHOLD:
-        return "ai", "PLACEHOLDER — write the high-confidence AI label."
+        return "ai", LABEL_AI
     if score <= config.HUMAN_THRESHOLD:
-        return "human", "PLACEHOLDER — write the high-confidence human label."
-    return "unsure", "PLACEHOLDER — write the unsure label."
+        return "human", LABEL_HUMAN
+    return "unsure", LABEL_UNSURE
 
 
 def label_ranges() -> list[tuple[str, str]]:

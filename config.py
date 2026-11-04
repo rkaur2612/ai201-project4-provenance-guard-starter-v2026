@@ -57,6 +57,15 @@ DETECTOR_MAX_TOKENS = 400
 WEIGHT_MODEL_SIGNAL = 0.5
 WEIGHT_STYLE_SIGNAL = 0.5
 
+# Disagreement rule: if the two signals are more than DISAGREE_GAP apart, the
+# weighted average is shrunk toward 0.5 by DISAGREE_SHRINK. Two methods
+# disagreeing IS uncertainty, so neither gets to accuse alone.
+DISAGREE_GAP = 0.4
+DISAGREE_SHRINK = 0.5
+
+# Longest text /submit accepts, in characters.
+MAX_TEXT_CHARS = 20000
+
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
 # Where one label becomes another. Scores run 0.0 (confidently human) to 1.0
@@ -72,7 +81,7 @@ WEIGHT_STYLE_SIGNAL = 0.5
 # that decide who pays for it.
 
 HUMAN_THRESHOLD = 0.35
-AI_THRESHOLD = 0.65
+AI_THRESHOLD = 0.75
 
 # ⚠️ One thing that catches people out in Milestone 5. A weighted average can
 # only land between its two inputs — so while `style_signal` is still the stub
