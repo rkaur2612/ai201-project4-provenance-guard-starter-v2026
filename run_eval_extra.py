@@ -13,12 +13,13 @@ Three trials, results written to results/extra_<stamp>_<label>.md.
 import argparse
 import datetime as dt
 import json
+import os
 
 import requests
 
 import config
 
-URL = f"http://{config.HOST}:{config.PORT}"
+URL = os.environ.get("EVAL_URL", f"http://{config.HOST}:{config.PORT}")
 TEXT = ("We got to the campsite about four. The pitch was fine, a bit sloped, "
         "but there was a tap nearby and nobody else for miles. We ate beans "
         "straight from the tin and watched the sky go orange.")

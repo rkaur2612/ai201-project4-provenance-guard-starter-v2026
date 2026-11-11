@@ -206,6 +206,12 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 - *What came back:* A plain human paragraph was labeled AI at 0.7519, which is the false positive this project is about.
 - *What I changed:* The AI threshold went from 0.65 to 0.75 so doubtful cases land in "unsure", and I recorded the case as a known weak spot instead of hiding it.
 
+**Moment 3 (unit 8)**
+
+- *What I asked for:* I asked Claude Code to read the unit 8 testing brief and work through the milestones, then to complete Milestone 3 and pick the one improvement itself.
+- *What came back:* Rate limiting (5/min, 100/day), the attack run, stand-in "my own writing" scenarios, three-trial runs, the diagnoses, and a threshold change from 0.75 to 0.85 with before and after tables.
+- *What I changed:* I approved using its drafted human writing as stand-ins instead of my own, which means criterion 1 is not yet judged on my real prose. I left the choice of the threshold fix to it; the result broke criterion 3, and I kept that in the write-up rather than rescuing it.
+
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
 ---
@@ -424,44 +430,58 @@ Criterion 5, `run_eval.py::main` "bad input" bodies, trial 1, and `run_eval_extr
 
 4. **Inconclusive, not a failure: RQ10 and RQ11.** They returned 429 in the run because the limiter keys malformed requests (no usable `creator_id`) to the caller's address, and the preceding malformed rows had used its 5 per minute. They never reached `submit`; re-sent after the window both returned 400.
 
-**Pattern.** Two causes cover 12 of the 16 breaks: signal one and signal two both read plainness and regularity as machine-written (the four false positives), and the 0.35-0.75 unsure band absorbs partial evasions (nine). The signals are correlated, which is why the disagreement rule only helps when an attacker pushes one signal and not the other. The three non-prose cases are a separate, smaller route-validation problem. The worst outcome, FP03, is the first cause.
+**Pattern.** Two causes cover 13 of the 16 breaks: signal one and signal two both read plainness and regularity as machine-written (the four false positives), and the 0.35-0.75 unsure band absorbs partial evasions (nine). The signals are correlated, which is why the disagreement rule only helps when an attacker pushes one signal and not the other. The three non-prose cases are a separate, smaller route-validation problem. The worst outcome, FP03, is the first cause.
 
 ---
 
 ## The Improvement
 
-**What I changed:**
+**What I changed:** One number. `AI_THRESHOLD` in `config.py` went from 0.75 to 0.85. Nothing else moved: weights, `HUMAN_THRESHOLD` (0.35), the disagreement rule, signals, labels and rate limits are as before. (The "after" runs used a second copy of the service on port 5001 because the first copy was still running with the old threshold; same code and config otherwise.)
 
-**Which diagnosis pointed at it:**
+**Which diagnosis pointed at it:** Diagnosis 1, the false positives. FP02, FP03 and FP07 scored 0.756-0.767 and FP05 scored 0.844, all because both signals read plain or formal prose as machine-like. Since the signals agree, the only stage that can still stop an accusation is the label mapping, so I widened the unsure band there. 0.85 is the smallest round number that clears all four.
 
 ### Attack Run — After
 
-<!-- Same format. `run_attacks.py --label after` -->
+Full per-attack JSON: `results/attack_run_2026-11-11_1120_after.md`. Same marking rule as before.
 
+| Group | Before | After | What moved |
+|---|---|---|---|
+| Evasion EV01-EV10 | 9 BROKE, 1 HELD | 9 BROKE, 1 HELD | nothing: every evasion was already below 0.75 |
+| False positives FP01-FP08 | 4 BROKE (FP02, FP03, FP05, FP07 labeled `ai`) | 0 BROKE | FP02 0.767, FP03 0.764, FP05 0.844, FP07 0.756 all now `unsure` |
+| Prompt injection PI01-PI06 | 0 BROKE | 0 BROKE | none |
+| Malformed MF01-MF08 | 3 BROKE (MF05, MF06, MF07) | 2 BROKE (MF06, MF07) | MF05 0.832 now `unsure`; MF06 0.9985 and MF07 0.953 still `ai` |
+| RQ01-RQ12 | 0 BROKE, RQ10/RQ11 inconclusive | same | RQ10 and RQ11 were 429 again for the same reason |
+| Flood FL01 | 5 allowed, 7 rejected | 5 allowed, 7 rejected | none |
+| **Total BROKE** | **16 of 56** | **11 of 56** | -5 |
 
+Scores are identical before and after for every attack (only the label cut-off moved).
 
-**Did it help, and how do I know:**
+Five-criteria run, three trials each (`results/run_2026-11-11_1121_after.md`, `results/extra_2026-11-11_1122_after.md`), identical across trials:
 
-<!-- Widening the unsure band usually fixes one problem and creates another.
-     Reporting that trade honestly is worth full credit. -->
+| Criterion | Before | After | Verdict after |
+|---|---|---|---|
+| 1. Own writing flagged as AI | 0/10 `ai` | 0/10 | MET |
+| 2. Score spread | 0.388 | 0.388 (scores unchanged) | MET |
+| 3. All three labels reachable (12 inputs) | 4 human, 6 unsure, 2 ai | 4 human, 8 unsure, **0 ai** | **MISSED** (3 of 3 trials) |
+| 4. Appeal path | 5/5, fake id 404 | 5/5, 404 | MET |
+| 5. Bad input | 6/6 | 6/6 | MET |
 
-
+**Did it help, and how do I know:** It fixed what it targeted and broke something else. All four false positives are gone, including FP03, my worst outcome, and the 5 attacks it fixed (4 FP and MF05) went from `ai` to `unsure` in the run output. The cost is on the other side, exactly as predicted: the three clearly-AI texts in my coverage set that scored 0.7643-0.7659 (one `ai` text from the AI group and the borderline "remote work" paragraph) now read `unsure`, so criterion 3 flipped from MET to MISSED. In the coverage set, no input scores above 0.766, so with the AI cut-off at 0.85 the `ai` label is not reachable. Only EV10 (0.925), MF06 (0.9985) and MF07 (0.953) still reach it, and two of those are junk. So the label that is left is mostly right for the wrong reasons. I did not move the scenarios to rescue criterion 3, because that would make before and after incomparable. The improvement helped writers, who now get `unsure` instead of an accusation, and hurt detection: the system now accuses almost nothing real.
 
 ---
 
 ## What's Still Broken
 
-<!-- For each attack still getting through and each criterion still missed:
-     what you'd do, and why you stopped. -->
+- **9 evasions (EV01-EV09) still labeled `unsure` or `human`.** What I'd do: add a signal that the edits don't move (for example a check across paragraphs or a second language model) and stop averaging two correlated statistics. Why I stopped: one change per unit, and a new signal is a rebuild, not a tweak. Moving thresholds can't help here, since these score 0.43-0.59.
+- **MF06 and MF07 (emoji, right-to-left script) still confidently `ai`.** What I'd do: reject text with too few alphabetic Latin-script words with a 422 in `app.py::submit` before any signal runs. Why I stopped: it's a separate fix from the threshold, and fixing it in the same unit would have made the before and after incomparable.
+- **Criterion 3 MISSED after the fix.** What I'd do: either lower the threshold back toward 0.80 and accept FP05 as an accusation, or build a signal strong enough to push clearly-AI text above 0.85. Why I stopped: 0.85 was the clean cut for the false positives, and the honest outcome is that my signals can't separate them from real AI text with this margin.
+- **FP05 is 0.006 under the cut-off (0.8438 vs 0.85).** One more adjustment to the text would flip it back to `ai`. The fix is fragile, not solid.
+- **RQ10/RQ11 never reached the route in the run** (429 from the shared address limit). Retested by hand after the window: 400. I'd key malformed requests to a separate bucket. I stopped because it affects measurement, not users.
+- **Criterion 1 is judged on stand-in writing**, not mine; the real test needs my own prose.
 
+**The trade I'd make if this ran for real:** I would keep the wide unsure band and not let the system accuse anyone on text statistics alone, which means a lot of AI text passes unlabeled. The people who pay are the platform's reviewers and honest writers whose work is copied or imitated, in exchange for not telling a careful second-language writer that their own work looks machine-made.
 
-
-**The trade I'd make if this ran for real:**
-
-<!-- Two sentences. Fewer wrong accusations means more AI text getting through.
-     Say which way you'd go and WHO PAYS FOR IT. -->
-
-
+---
 
 <!-- ═════════════════════════════════════════════════════════════════════
 
