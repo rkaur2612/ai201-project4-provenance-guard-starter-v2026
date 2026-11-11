@@ -212,25 +212,19 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 5 per minute, 100 per day
 
-**Why those numbers and not others:**
-<!-- Think about two people: a real writer submitting their own work a few
-     times an hour, and a script sending a thousand variations to map your
-     thresholds. Your numbers have to be liveable for the first and hostile to
-     the second. -->
+**Why those numbers and not others:** A real writer submits a few pieces an hour, so 5 a minute leaves room for a quick resubmit or two and 100 a day is far more than any one person writes. A script mapping my thresholds needs hundreds of probes with small edits; 100 a day turns that into several days of work per creator_id, and 5 a minute stops a burst. I did not go lower because a writer who hits a limit while revising is being punished for doing nothing wrong.
 
-**What a caller counts as:** <!-- per address, or per creator_id? They fail
-differently — one script can look like a thousand callers, and one household
-can look like one. -->
+**What a caller counts as:** The `creator_id` in the request body, falling back to the caller's address when it is missing or unusable (`rate_limit_key` in `app.py`). The weakness: a script can rotate `creator_id` values to dodge the limit, and the attack set's per-row creator ids will not trip it. Limiting by address would stop that but would lump a household or campus together.
 
 **The run of status codes when I pushed past it:**
 
-<!-- python run_attacks.py --flood 15 -->
-
+```
+200 200 200 200 200 429 429 429 429 429 429 429 429 429 429
 ```
 
-```
+(`python run_attacks.py --flood 15`; 10 of 15 limited. Rejections are written to `logs/audit.jsonl` with `reason: rate_limited`. Full output in `results/flood_2026-11-11_1102.md`.)
 
 ---
 
