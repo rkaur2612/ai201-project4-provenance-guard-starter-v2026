@@ -299,21 +299,113 @@ whose work got caught by it: FP03. A person describing their first month in a ne
 
 ## Run Log and Verdicts
 
-<!-- Your five criteria across three trials. `run_eval.py --label before`. -->
+All trials: `python run_eval.py --label before` and `python run_eval_extra.py --label before` (appeal path and non-JSON body, which `run_eval.py` can't express), service unchanged between trials. Files: `results/run_2026-11-11_1115_before.md`, `results/extra_2026-11-11_1116_before.md`. Limits on: 5/min, 100/day.
+
+**Important caveat on criterion 1.** The ten "my own writing" pieces in `scenarios.py` were drafted by Claude Code as stand-ins (seven plain, three second-language style), not written by me. Swap in my real writing and re-run before treating criterion 1 as final.
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |
+| 1. My own writing flagged as AI | at most 1 of 10 labeled `ai` | 0/10 `ai` (1 human, 9 unsure) | 0/10 | 0/10 | MET |
+| 2. Score spread, AI mean minus human mean | at least 0.30 | 0.388 (0.646 vs 0.258) | 0.388 | 0.388 | MET |
+| 3. All three labels reachable (12 inputs) | all 3 labels at least once, none outside | 3/3 (4 human, 6 unsure, 2 ai) | 3/3 | 3/3 | MET |
+| 4. Appeal always changes status | 5/5 confirmed, `under_review`, in `/log`; fake id gives 404 and no appeal row | 5/5, fake id 404 | 5/5, 404 | 5/5, 404 | MET |
+| 5. Bad input gives 4xx JSON, `/ping` survives | 6 of 6 cases | 6/6 (400 x4, 413, non-JSON 400, `/ping` 200) | 6/6 | 6/6 | MET |
+
+All three trials were identical for every criterion, as expected: neither signal is random, so repeats confirm stability rather than reveal variation. Verdicts rest on these numbers only; whether the targets were too easy is a Milestone 4 question (note already: the same system labeled 4 of 8 human pieces `ai` in the attack run, so my criterion-1 set was much gentler than staff's).
 
 **Real output from one trial**, pasted as text, naming the file and function
 that produced it:
 
+Criterion 1, `run_eval.py::main` -> `app.py::submit`, scenario "my own writing", trial 1 (first 3 of 10):
 ```json
+[
+ {
+  "status": 200,
+  "guess": "unsure",
+  "confidence": 0.5255,
+  "model_score": 0.6019,
+  "style_score": 0.4492,
+  "label": "We can't tell for sure how thi...",
+  "sent": "Our bus broke down outside Leeds on Friday and we waited two hours in "
+ },
+ {
+  "status": 200,
+  "guess": "human",
+  "confidence": 0.3436,
+  "model_score": 0.3538,
+  "style_score": 0.3333,
+  "label": "We think this was probably wri...",
+  "sent": "I burnt the rice again. Third time this week. My flatmate says I shoul"
+ },
+ {
+  "status": 200,
+  "guess": "unsure",
+  "confidence": 0.3669,
+  "model_score": 0.2506,
+  "style_score": 0.4833,
+  "label": "We can't tell for sure how thi...",
+  "sent": "The meeting ran long because Priya and Tom disagreed about the deadlin"
+ }
+]
+```
 
+Criterion 2, scenarios "spread AI" and "spread human", trial 1, `confidence` per text:
+```
+AI:    [0.6311, 0.6713, 0.545, 0.7659, 0.617]  mean 0.6461
+human: [0.2594, 0.2923, 0.1931, 0.2684, 0.2788]  mean 0.2584
+difference 0.3877
+```
+
+Criterion 3, scenario "label coverage", trial 1, `(confidence, guess)` for all 12 inputs:
+```
+[(0.6311, 'unsure'), (0.6713, 'unsure'), (0.545, 'unsure'), (0.7659, 'ai'), (0.2594, 'human'), (0.2923, 'human'), (0.1931, 'human'), (0.2684, 'human'), (0.7332, 'unsure'), (0.7643, 'ai'), (0.625, 'unsure'), (0.5871, 'unsure')]
+```
+
+Criterion 4, `run_eval_extra.py::appeal_trial` -> `app.py::appeal`, trial 1 (one real appeal, then the made-up id):
+```json
+[
+ {
+  "submit_status": 200,
+  "content_id": "2e1fcc0800ed",
+  "appeal_status": 200,
+  "status": "under_review",
+  "confirmation": true,
+  "in_log": true,
+  "passed": true
+ },
+ {
+  "fake_id_status": 404,
+  "wrote_appeal_entry": false,
+  "passed": true
+ }
+]
+```
+
+Criterion 5, `run_eval.py::main` "bad input" bodies, trial 1, and `run_eval_extra.py::nonjson_trial`:
+```json
+[
+ {
+  "status": 400,
+  "sent": "{\"creator_id\": \"eval_bad_missing\"}"
+ },
+ {
+  "status": 400,
+  "sent": "(empty text)"
+ },
+ {
+  "status": 400,
+  "sent": "   \n\t  "
+ },
+ {
+  "status": 400,
+  "sent": "{\"text\": 12345, \"creator_id\": \"eval_bad_number\"}"
+ },
+ {
+  "status": 413,
+  "sent": "word word word word word word word word word word word word word word "
+ }
+]
+{"status": 400, "json_error_body": true, "ping_status": 200, "passed": true}
 ```
 
 **Diagnoses**
