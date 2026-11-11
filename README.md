@@ -410,21 +410,21 @@ Criterion 5, `run_eval.py::main` "bad input" bodies, trial 1, and `run_eval_extr
 
 **Diagnoses**
 
-<!-- For each miss AND each broken attack: the stage and the mechanism.
+*How I decided verdicts:* a criterion is MET only if its target held in all three trials. All five held in all three (identical each time), so all five are MET against the targets I wrote. I did not revise any criterion, and `criteria.md` is unchanged.
 
-     Your service has five stages: the route, signal one, signal two, the
-     combining rule, and the label mapping.
+*Were my targets too low?* Yes, criterion 1 was. It passed 0 of 10 while the attack run labeled 4 of 8 staff-written human pieces `ai`. The difference is the test set: my ten pieces are casual and lumpy, and staff's FP pieces are formal, technical, rubric-style or careful second-language prose, which is exactly what the criterion's reason said it needed. If I tightened anything it would be criterion 1's wording to require formal and technical human writing too, not a bigger number. (Also the caveat above: my ten were stand-ins, not my own prose.) Criterion 3 passed only because my set contained two inputs at 0.764 and 0.766, 0.01 below the AI threshold; that is thin margin, not strength.
 
-     Not a diagnosis:  "The evasion attacks got through."
-     A diagnosis:      "Four evasion inputs got through. All four had typos
-                        added to AI-generated text. My second signal measures
-                        word variety, and typos raise word variety — so it read
-                        them as more human. My combining rule weights that
-                        signal at 0.6, so it dragged the whole score down."
+**Broken attacks, by stage and mechanism** (16 of 56 BROKE):
 
-     Look for a pattern. Five failures on one signal is one problem, not five. -->
+1. **False positives FP02, FP03, FP05, FP07 (4). Stage: signal one and signal two together, then the combining rule.** Signal one (`detector.model_signal`, GPT-2 predictability) scored these 0.74-0.88 because formal, plain, technical or repetitive prose is predictable to a language model whether a person or an AI wrote it. Signal two (`stylometry.style_signal`) scored them 0.63-0.89 because careful writing has even sentence lengths, a narrow vocabulary and sparse punctuation, which my spread, vocabulary and punctuation sub-scores all read as machine-like. The two signals agree (FP03: 0.81 and 0.72), so the disagreement rule in `scoring.combine_signals` (shrink toward 0.5 when the gap exceeds 0.4) never fires, and the 0.5/0.5 average passes the 0.75 AI threshold. The signals aren't independent: both treat "plain and regular" as "AI".
 
+2. **Evasion EV01-EV09 (9 not labeled `ai`). Stage: signal two for most, then the combining rule.** EV01 (typos) dropped signal one to 0.16 while signal two stayed at 0.60, and EV02/EV06/EV07 (broken sentences, extreme lengths, punctuation padding) moved signal two to 0.30-0.42. Each edit pulls one signal toward human, the 0.5/0.5 average lands at 0.43-0.59, and that is the `unsure` band (0.35-0.75). EV05 (heavy human editing, 0.297 `human`) is arguably a correct result. The mechanism is that both signals measure surface statistics that cheap edits change, and the unsure band is wide enough (0.40 wide) to swallow every partial evasion. The two attacks that raised the model signal (EV03 0.67, EV09 0.70) show the signals can split in either direction.
 
+3. **Non-prose MF05, MF06, MF07 (3 confident `ai`). Stage: the route (no input check) feeding signal one.** `/submit` only rejects empty, non-string, over-20,000-character and too-short text. A 4,000-character single word, emoji, and right-to-left script all pass, and GPT-2 finds repeated or unfamiliar tokens extremely predictable (model scores 0.9969-0.9976), so the signal calls it machine text. MF06 reached 0.9985, my most confident `ai` of the whole run, on text that isn't writing at all.
+
+4. **Inconclusive, not a failure: RQ10 and RQ11.** They returned 429 in the run because the limiter keys malformed requests (no usable `creator_id`) to the caller's address, and the preceding malformed rows had used its 5 per minute. They never reached `submit`; re-sent after the window both returned 400.
+
+**Pattern.** Two causes cover 12 of the 16 breaks: signal one and signal two both read plainness and regularity as machine-written (the four false positives), and the 0.35-0.75 unsure band absorbs partial evasions (nine). The signals are correlated, which is why the disagreement rule only helps when an attacker pushes one signal and not the other. The three non-prose cases are a separate, smaller route-validation problem. The worst outcome, FP03, is the first cause.
 
 ---
 
