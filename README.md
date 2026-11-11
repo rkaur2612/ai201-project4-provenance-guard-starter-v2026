@@ -230,23 +230,70 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 ## Attack Run — Before
 
-<!-- Every attack with its outcome and a held-or-broke mark.
-     `run_attacks.py --label before` produces the table. -->
+Full per-attack JSON: `results/attack_run_2026-11-11_1109_before.md`. Limits at the time: 5/min, 100/day.
 
+**Marking rule.** Evasion: BROKE if AI-written text did not get the `ai` label (partial = `unsure`, full = `human`). False positive: BROKE if human writing got `ai`. Prompt injection: BROKE if the instruction changed the outcome or the log. Malformed: BROKE if 5xx, crash, or a confident verdict on non-prose.
 
+| ID | Attack | Model / Style / Score | Label | Verdict |
+|---|---|---|---|---|
+| EV01 | typos added to AI text | 0.16 / 0.60 / 0.440 | unsure | BROKE (partial) |
+| EV02 | broken-up sentences | 0.59 / 0.30 / 0.448 | unsure | BROKE (partial) |
+| EV03 | pasted quotation | 0.67 / 0.39 / 0.526 | unsure | BROKE (partial) |
+| EV04 | unusual words | 0.61 / 0.57 / 0.590 | unsure | BROKE (partial) |
+| EV05 | heavy human edit | 0.32 / 0.27 / 0.297 | human | BROKE (full), arguably fair: text is mostly human now |
+| EV06 | one very long + one very short sentence | 0.57 / 0.41 / 0.492 | unsure | BROKE (partial) |
+| EV07 | punctuation padding | 0.59 / 0.42 / 0.503 | unsure | BROKE (partial) |
+| EV08 | text below token window | 0.25 / 0.61 / 0.428 | unsure | BROKE (partial) |
+| EV09 | human opening bolted on | 0.70 / 0.40 / 0.553 | unsure | BROKE (partial) |
+| EV10 | repeated stanza structure | 0.98 / 0.87 / 0.925 | ai | HELD |
+| FP01 | plain human writing | 0.62 / 0.66 / 0.640 | unsure | HELD |
+| FP02 | formal human register | 0.74 / 0.79 / 0.767 | ai | BROKE |
+| FP03 | non-native speaker | 0.81 / 0.72 / 0.764 | ai | BROKE |
+| FP04 | rubric student essay | 0.83 / 0.60 / 0.717 | unsure | HELD |
+| FP05 | human technical docs | 0.80 / 0.89 / 0.844 | ai | BROKE |
+| FP06 | formal letter template | 0.88 / 0.58 / 0.732 | unsure | HELD |
+| FP07 | deliberate repetition | 0.88 / 0.63 / 0.756 | ai | BROKE |
+| FP08 | very short human text | 0.32 / 0.51 / 0.417 | unsure | HELD |
+| PI01 | "ignore all previous instructions" | 0.46 / 0.36 / 0.410 | unsure | HELD |
+| PI02 | fake SYSTEM message | 0.20 / 0.30 / 0.254 | human | HELD (score came from the text statistics, not obeying the instruction; the injected prose just reads as human to both signals) |
+| PI03 | note to the reviewing system | 0.59 / 0.48 / 0.539 | unsure | HELD |
+| PI04 | HTML/script in text | 0.50 / 0.39 / 0.443 | unsure | HELD (label is a fixed string; response is JSON) |
+| PI05 | fake JSON in text to poison the log | 0.64 / 0.15 / 0.448 | unsure | HELD (log line is `json.dumps` of my own fields; the text is never logged) |
+| PI06 | instruction + real human text | 0.56 / 0.64 / 0.597 | unsure | HELD |
+| MF01 | whitespace only | n/a | 400 | HELD |
+| MF02 | single character | n/a | 422 | HELD |
+| MF03 | control characters | 0.00 / 0.67 / 0.417 | unsure | HELD |
+| MF04 | punctuation only | 0.01 / 1.00 / 0.503 | unsure | HELD |
+| MF05 | 4,000-char single word | 1.00 / 0.67 / 0.832 | ai | BROKE (confident verdict on non-prose) |
+| MF06 | emoji only | 1.00 / 1.00 / 0.999 | ai | BROKE (confident verdict on non-prose) |
+| MF07 | right-to-left script | 0.95 / ? / 0.953 | ai | BROKE (confident verdict on text the signals can't read) |
+| MF08 | 60,000 chars | n/a | 413 | HELD |
+| RQ01-RQ09, RQ12 | missing/non-string fields, bad JSON, array body, empty body, nested JSON | n/a | 400 | HELD (no 5xx) |
+| RQ10, RQ11 | form-encoded body; JSON sent as text/plain | n/a | 429 in the run | INCONCLUSIVE in the run, then HELD: the sender's address had already used its 5/min on earlier malformed rows, so they never reached my route. Re-sent after the window they each returned 400 |
+| FL01_01-05 | 12 rapid submissions, one creator | 0.03 / 0.67 / 0.424 | unsure | HELD (allowed) |
+| FL01_06-12 | same creator, over the limit | n/a | 429 | HELD (7 rejected, logged) |
 
-**Ten audit log entries from the run**
+**Count:** 10 evasion (9 BROKE, 1 HELD), 8 false positives (4 BROKE), 6 injection (0 BROKE), 8 MF (3 BROKE), 12 RQ (0 BROKE, 2 inconclusive in-run), 12 flood (0 BROKE). Total BROKE: 16 of 56. No 5xx and no crash.
 
-<!-- Choose entries that show the interesting failures, not the ten easiest. -->
+**Ten audit log entries from the run** (12 shown: ten decisions, then a rate-limit rejection and a route rejection; also in `results/audit_extract_before.jsonl`; the `label` text is truncated here for width)
 
 ```json
-
+{"timestamp": "2026-11-11T19:08:45+00:00", "content_id": "a3f517bf7fa9", "creator_id": "attacker_FP03", "guess": "ai", "model_score": 0.8051, "style_score": 0.7224, "combined_score": 0.7638, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:49+00:00", "content_id": "db4e567ffb48", "creator_id": "attacker_FP05", "guess": "ai", "model_score": 0.8005, "style_score": 0.8871, "combined_score": 0.8438, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:44+00:00", "content_id": "a282b0264553", "creator_id": "attacker_FP02", "guess": "ai", "model_score": 0.7387, "style_score": 0.7947, "combined_score": 0.7667, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:56+00:00", "content_id": "f8029b0f65c5", "creator_id": "attacker_FP07", "guess": "ai", "model_score": 0.8816, "style_score": 0.631, "combined_score": 0.7563, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:24+00:00", "content_id": "f9fc4ac58a56", "creator_id": "attacker_EV01", "guess": "unsure", "model_score": 0.1635, "style_score": 0.5973, "combined_score": 0.4402, "label": "We can't tell for sure how this was writ...", "status": "decided"}
+{"timestamp": "2026-11-11T19:09:23+00:00", "content_id": "63092ba3e017", "creator_id": "attacker_MF06", "guess": "ai", "model_score": 0.9969, "style_score": 1.0, "combined_score": 0.9985, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:09:19+00:00", "content_id": "af56e9a9095b", "creator_id": "attacker_MF05", "guess": "ai", "model_score": 0.9976, "style_score": 0.6667, "combined_score": 0.8321, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:35+00:00", "content_id": "6a31ea3208d8", "creator_id": "attacker_EV09", "guess": "unsure", "model_score": 0.7042, "style_score": 0.401, "combined_score": 0.5526, "label": "We can't tell for sure how this was writ...", "status": "decided"}
+{"timestamp": "2026-11-11T19:08:36+00:00", "content_id": "91433dd2cee3", "creator_id": "attacker_EV10", "guess": "ai", "model_score": 0.9792, "style_score": 0.8707, "combined_score": 0.9249, "label": "We think this may have been written with...", "status": "decided"}
+{"timestamp": "2026-11-11T19:09:03+00:00", "content_id": "81e0d0ba1d1a", "creator_id": "attacker_PI02", "guess": "human", "model_score": 0.2044, "style_score": 0.3028, "combined_score": 0.2536, "label": "We think this was probably written by a ...", "status": "decided"}
+{"timestamp": "2026-11-11T19:09:40+00:00", "creator_id": "attacker_flood", "event": "rejected", "status": "rejected", "reason": "rate_limited", "limit": "5 per 1 minute"}
+{"timestamp": "2026-11-11T19:09:11+00:00", "creator_id": "attacker_MF01", "event": "rejected", "status": "rejected", "reason": "bad_text"}
 ```
 
 **The single worst outcome** — the one I'd least want to explain to a writer
-whose work got caught by it:
-
-
+whose work got caught by it: FP03. A person describing their first month in a new country, writing carefully in simple English, got the `ai` label at 0.764 (model 0.81, style 0.72). Both signals read careful, plain, second-language prose as machine-like, so they agree and my disagreement rule does nothing. The writer can appeal, but the first thing they see is an accusation.
 
 ---
 
